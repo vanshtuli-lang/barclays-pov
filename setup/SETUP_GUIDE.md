@@ -99,9 +99,9 @@ astro deploy                     # full image deploy (new packages in requiremen
 ### Demo scenarios
 | Show | How |
 |---|---|
-| Failure keeps the watermark | Rename `POV_ACCOUNTS` temporarily → `load_to_snowflake` fails after 2 retries → the Variable is unchanged. Rename it back and clear the task: it succeeds. |
+| Failure keeps the watermark | Rename `POV_ACCOUNTS` temporarily → `merge_into_snowflake` fails after 2 retries → the Variable is unchanged. Rename it back and clear the task: it succeeds. |
 | Rerun = no duplicates | Clear a successful run → the Snowflake count stays the same and reconciliation passes. |
-| Reconciliation check | `DELETE` one row from `POV_ACCOUNTS` → the next run fails in `reconcile_counts`. |
+| Reconciliation check | `DELETE` one row from `POV_ACCOUNTS` → the next run fails in `check_snowflake_count`. |
 | Start over (full load) | Delete the `oracle_accounts_watermark` Variable. |
 
 ## Known limits (fine for a demo)
