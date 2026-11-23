@@ -1,1 +1,10 @@
 # Astro Runtime includes the following pre-installed providers packages: https://www.astronomer.io/docs/astro/runtime-image-architecture#provider-packages
+
+# --- Providers used by the oracle_accounts_incremental pipeline ---
+apache-airflow-providers-oracle        # OracleHook (python-oracledb "thin" mode, no Instant Client needed)
+apache-airflow-providers-snowflake     # SnowflakeHook / SQLExecuteQueryOperator against Snowflake
+apache-airflow-providers-amazon        # AwsBaseHook -> temporary credentials for Glue + S3
+
+# --- Iceberg + data movement ---
+pyiceberg[glue,pyarrow]                # write/read the landing.accounts Iceberg table via the AWS Glue catalog
+snowflake-connector-python[pandas]     # write_pandas() bulk-loads the staging table

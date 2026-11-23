@@ -1,0 +1,34 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "GlueCatalogForIcebergLanding",
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetDatabase",
+        "glue:GetDatabases",
+        "glue:GetTable",
+        "glue:GetTables",
+        "glue:UpdateTable"
+      ],
+      "Resource": [
+        "arn:aws:glue:<region>:<account-id>:catalog",
+        "arn:aws:glue:<region>:<account-id>:database/landing",
+        "arn:aws:glue:<region>:<account-id>:table/landing/*"
+      ]
+    },
+    {
+      "Sid": "ListLandingPrefix",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket", "s3:GetBucketLocation"],
+      "Resource": "arn:aws:s3:::<your-bucket>",
+      "Condition": { "StringLike": { "s3:prefix": ["iceberg/landing/accounts/*", "iceberg/landing/accounts"] } }
+    },
+    {
+      "Sid": "ReadWriteIcebergFiles",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::<your-bucket>/iceberg/landing/accounts/*"
+    }
+  ]
+}

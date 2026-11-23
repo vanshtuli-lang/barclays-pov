@@ -1,0 +1,54 @@
+# Deploys this Astro project to Astro whenever code lands on `main`.
+#
+#   Organization: cmwp37eqa2avu01o1k808smyt
+#   Deployment:   cmwpcsosd31lf01qw9ryahl7y
+#
+# Required GitHub secret:
+#   ASTRO_API_TOKEN: a *Deployment* API token for the Deployment above
+#                    (scoped to this one Deployment only).
+#
+# What happens on each push to main:
+#   1. The Astro CLI is installed.
+#   2. Every DAG is parsed; if any DAG has an import error, the deploy stops.
+#   3. deploy-type "infer" picks the deploy type from what changed:
+#        - only files in dags/ changed  -> fast DAG-only deploy (no image build)
+#        - anything else changed        -> full image + DAGs deploy
+#
+# You can also run it by hand: GitHub -> Actions -> "Deploy to Astro" -> Run workflow.
+
+name: Deploy to Astro
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+# Never run two deploys to the same Deployment at the same time.
+concurrency:
+  group: astro-deploy-cmwpcsosd31lf01qw9ryahl7y
+  cancel-in-progress: false
+
+env:
+  ASTRO_API_TOKEN: ${{ secrets.ASTRO_API_TOKEN }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the API token is configured
+        run: |
+          if [ -z "$ASTRO_API_TOKEN" ]; then
+            echo "::error::GitHub secret ASTRO_API_TOKEN is not set (Settings -> Secrets and variables -> Actions)."
+            exit 1
+          fi
+
+      - name: Install Astro CLI
+        uses: astronomer/setup-astro-cli@v0.0.1
+
+      - name: Deploy to Astro
+        uses: astronomer/deploy-action@v0.17.0
+        with:
+          deployment-id: cmwpcsosd31lf01qw9ryahl7y
+          deploy-type: infer   # DAG-only deploy when only dags/ changed, full deploy otherwise
+          parse: true          # block the deploy if any DAG fails to import
