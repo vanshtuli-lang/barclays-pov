@@ -4,22 +4,25 @@
 Daily incremental load of the Oracle `POV_ACCOUNTS` table into Snowflake.
 Changed rows land in S3 as an Iceberg table first, then get merged into Snowflake.
 
-The watermark (the latest `LAST_UPDATED_TS` we've loaded) lives in the Airflow
-Variable `oracle_accounts_watermark`. If it doesn't exist we do a full load.
-Delete the Variable to force a full reload.
+The watermark (the latest `LAST_UPDATED_TS` we've loaded) lives in the asset state
+store of the `pov_accounts` asset, under the key `watermark`. If it doesn't exist we
+do a full load. To view, seed, or reset it: Airflow UI -> Assets -> `pov_accounts` ->
+Asset State Store. Delete the `watermark` key to force a full reload.
 """
 
 from datetime import datetime, timedelta
 
 import pendulum
 from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator, SQLValueCheckOperator
-from airflow.sdk import Variable, chain, dag, task
+from airflow.sdk import Asset, chain, dag, task
 
 ORACLE_CONN_ID = "oracle_default"
 SNOWFLAKE_CONN_ID = "snowflake_default"
 AWS_CONN_ID = "aws_default"
 
-WATERMARK_VARIABLE = "oracle_accounts_watermark"
+# The Snowflake target table as an Airflow asset. Its state store holds the watermark.
+POV_ACCOUNTS_ASSET = Asset(name="pov_accounts")
+WATERMARK_KEY = "watermark"
 
 ORACLE_TABLE = "POV_ACCOUNTS"
 ICEBERG_TABLE = "landing.accounts"  # Glue database.table
@@ -75,8 +78,8 @@ def get_iceberg_table():
 )
 def oracle_accounts_incremental():
 
-    @task
-    def extract_to_iceberg(run_id: str) -> dict:
+    @task(inlets=[POV_ACCOUNTS_ASSET])
+    def extract_to_iceberg(run_id: str, asset_state_store=None) -> dict:
         import oracledb
         import pyarrow as pa
         from airflow.providers.oracle.hooks.oracle import OracleHook
@@ -85,7 +88,7 @@ def oracle_accounts_incremental():
         # Without this, oracledb hands back NUMBER(18,2) as a float and balances drift.
         oracledb.defaults.fetch_decimals = True
 
-        watermark = Variable.get(WATERMARK_VARIABLE, default=None)
+        watermark = asset_state_store[POV_ACCOUNTS_ASSET].get(WATERMARK_KEY, default=None)
 
         # LAST_UPDATED_TS is set when a row is created and every time it changes,
         # so one filter picks up both new and updated accounts.
@@ -195,10 +198,10 @@ def oracle_accounts_incremental():
 
     # Last task on purpose: it only runs if everything above succeeded,
     # so a failed run never moves the watermark.
-    @task
-    def update_watermark(extract: dict) -> None:
+    @task(outlets=[POV_ACCOUNTS_ASSET])
+    def update_watermark(extract: dict, asset_state_store=None) -> None:
         if extract["new_watermark"]:
-            Variable.set(WATERMARK_VARIABLE, extract["new_watermark"])
+            asset_state_store[POV_ACCOUNTS_ASSET].set(WATERMARK_KEY, extract["new_watermark"])
         print(f"Watermark is now {extract['new_watermark']}")
 
     extracted = extract_to_iceberg()
