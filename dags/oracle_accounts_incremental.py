@@ -3,15 +3,20 @@
 
 Every day at 02:00:
 
-1. **get_watermark**: read the last watermark from the Airflow Variable `oracle_accounts_watermark`.
-   If the Variable doesn't exist, this is the first run, so load everything (full load).
+1. **get_watermark**: read the last watermark from the `watermark` key in the asset state store
+   of the `pov_accounts` asset. If the key doesn't exist, this is the first run, so load
+   everything (full load).
 2. **extract_to_iceberg**: pull new or changed rows from Oracle and write them to the
    Iceberg table `landing.accounts` on S3.
 3. **load_to_snowflake**: copy those rows into a staging table, then MERGE them into
    `POV_ACCOUNTS`: insert new accounts and update changed ones.
 4. **reconcile_counts**: Oracle and Snowflake must have the same number of accounts, otherwise fail.
-5. **update_watermark**: save the new watermark. This is the last task, so it only runs when
-   everything above succeeded. A failed run leaves the watermark untouched.
+5. **update_watermark**: save the new watermark to the asset state store and emit an asset event
+   for `pov_accounts`. This is the last task, so it only runs when everything above succeeded.
+   A failed run leaves the watermark untouched.
+
+To view, reset, or seed the watermark: Airflow UI -> Assets -> `pov_accounts` -> Asset State Store.
+Deleting the `watermark` key forces a full reload on the next run.
 
 Re-running is safe: every step replaces or merges its data, so it never appends duplicates.
 """
@@ -19,7 +24,7 @@ Re-running is safe: every step replaces or merges its data, so it never appends 
 from datetime import datetime, timedelta
 
 import pendulum
-from airflow.sdk import Variable, dag, get_current_context, task
+from airflow.sdk import Asset, dag, get_current_context, task
 
 # ---------------------------------------------------------------------------
 # Settings
@@ -28,7 +33,9 @@ ORACLE_CONN_ID = "oracle_default"
 SNOWFLAKE_CONN_ID = "snowflake_default"
 AWS_CONN_ID = "aws_default"
 
-WATERMARK_VARIABLE = "oracle_accounts_watermark"  # Airflow Variable holding the last loaded timestamp
+# The Snowflake target table as an Airflow asset. Its state store holds the watermark.
+POV_ACCOUNTS_ASSET = Asset(name="pov_accounts")
+WATERMARK_KEY = "watermark"
 
 ORACLE_TABLE = "POV_ACCOUNTS"
 ICEBERG_TABLE = "landing.accounts"  # <glue database>.<table>
@@ -81,13 +88,13 @@ def get_iceberg_table():
 )
 def oracle_accounts_incremental():
 
-    @task
-    def get_watermark() -> dict:
+    @task(inlets=[POV_ACCOUNTS_ASSET])
+    def get_watermark(asset_state_store=None) -> dict:
         """Work out which rows to load in this run."""
         from airflow.providers.oracle.hooks.oracle import OracleHook
 
         # Last successful watermark, or None on the very first run.
-        watermark = Variable.get(WATERMARK_VARIABLE, default=None)
+        watermark = asset_state_store[POV_ACCOUNTS_ASSET].get(WATERMARK_KEY, default=None)
 
         # Note Oracle's current time now, *before* extracting. If the run succeeds, this
         # becomes the next watermark, so nothing that changes during the run is missed.
@@ -206,10 +213,10 @@ def oracle_accounts_incremental():
         if oracle_count != snowflake_count:
             raise ValueError(f"Row counts don't match: Oracle={oracle_count}, Snowflake={snowflake_count}")
 
-    @task
-    def update_watermark(window: dict) -> None:
+    @task(outlets=[POV_ACCOUNTS_ASSET])
+    def update_watermark(window: dict, asset_state_store=None) -> None:
         """Last step: save the new watermark. Only reached when every task above succeeded."""
-        Variable.set(WATERMARK_VARIABLE, window["run_started_at"])
+        asset_state_store[POV_ACCOUNTS_ASSET].set(WATERMARK_KEY, window["run_started_at"])
         print(f"Watermark moved from {window['watermark']} to {window['run_started_at']}")
 
     # ---------------------------------------------------------------------------
